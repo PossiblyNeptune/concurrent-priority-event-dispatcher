@@ -2,6 +2,7 @@
 
 A high-performance, thread-safe, concurrent priority event dispatcher implemented in C++17. This project acts as a real-time task manager optimized for latency-critical systems, such as game engines, multimedia streams, or financial simulation pipelines.
 
+Deployed at : https://concurrent-priority-event-dispatcher.streamlit.app/
 ---
 
 ## 🎯 The Purpose & Problem Definition
