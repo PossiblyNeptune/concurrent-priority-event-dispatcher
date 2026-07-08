@@ -35,3 +35,4 @@ install_manifest.txt
 
 # Project specific data files
 stats.csv
+event_dispatcher
