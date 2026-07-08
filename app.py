@@ -46,7 +46,7 @@ def compile_cpp_backend():
         "src/main.cpp", "-o", "event_dispatcher"
     ]
     
-    try {
+    try:
         result = subprocess.run(compile_cmd, capture_output=True, text=True)
         if result.returncode == 0:
             st.success("✅ C++ compilation completed successfully!")
