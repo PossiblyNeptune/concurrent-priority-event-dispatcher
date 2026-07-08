@@ -1,0 +1,37 @@
+# Build directories
+build/
+bin/
+lib/
+out/
+
+# Markdown documentation files (except README.md)
+*.md
+!README.md
+
+# MSVC / Visual Studio temporary build files
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.lib
+*.dll
+*.exp
+*.suo
+*.user
+*.ncb
+*.sdf
+*.opensdf
+*.VC.db
+ipch/
+.vs/
+
+# CMake temporary files and cache
+CMakeCache.txt
+CMakeFiles/
+CMakeSettings.json
+cmake_install.cmake
+Makefile
+install_manifest.txt
+
+# Project specific data files
+stats.csv

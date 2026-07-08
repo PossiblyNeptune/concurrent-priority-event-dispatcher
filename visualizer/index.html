@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Concurrent Event Dispatcher Visualizer</title>
+    <meta name="description" content="An interactive real-time dashboard visualizing a concurrent priority event dispatcher with dynamic aging, backpressure, reader-writer locks, and exception isolation.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Styling -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Controls -->
+        <aside class="sidebar glass">
+            <div class="logo-area">
+                <div class="logo-icon">
+                    <i data-lucide="cpu"></i>
+                </div>
+                <div>
+                    <h2>Priority Dispatch</h2>
+                    <p class="subtitle">Concurrent C++ Simulation</p>
+                </div>
+            </div>
+
+            <!-- Simulation Controls -->
+            <section class="control-section">
+                <h3><i data-lucide="sliders"></i> Simulation Speeds</h3>
+                <div class="control-group">
+                    <div class="control-header">
+                        <label for="sim-state">Engine Status</label>
+                        <span id="sim-state-text" class="status-badge running">Running</span>
+                    </div>
+                    <div class="sim-actions">
+                        <button id="btn-play-pause" class="btn primary btn-icon" title="Play/Pause Simulation">
+                            <i data-lucide="pause" id="play-pause-icon"></i> <span id="play-pause-text">Pause</span>
+                        </button>
+                        <button id="btn-reset" class="btn secondary btn-icon" title="Reset Simulation">
+                            <i data-lucide="rotate-ccw"></i> Reset
+                        </button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-header">
+                        <label for="speed-slider">Time Scale</label>
+                        <span id="speed-val">0.25x</span>
+                    </div>
+                    <input type="range" id="speed-slider" min="0.05" max="1" step="0.05" value="0.25">
+                    <span class="help-text">Use slow-motion (<0.5x) to easily observe event aging and promotions.</span>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-header">
+                        <label for="worker-slider">ThreadPool Size</label>
+                        <span id="worker-val">4 Workers</span>
+                    </div>
+                    <input type="range" id="worker-slider" min="1" max="8" step="1" value="4">
+                </div>
+            </section>
+
+            <!-- Event Producer Control -->
+            <section class="control-section">
+                <h3><i data-lucide="radio"></i> Event Generation Rates</h3>
+                <div class="control-group">
+                    <div class="control-header">
+                        <span class="priority-label high"><span class="dot"></span> INPUT (HIGH)</span>
+                        <span id="rate-input-val">1.2 Hz</span>
+                    </div>
+                    <input type="range" id="rate-input" min="0" max="5" step="0.2" value="1.2">
+                </div>
+                <div class="control-group">
+                    <div class="control-header">
+                        <span class="priority-label med"><span class="dot"></span> PHYSICS (MED)</span>
+                        <span id="rate-physics-val">1.0 Hz</span>
+                    </div>
+                    <input type="range" id="rate-physics" min="0" max="5" step="0.2" value="1.0">
+                </div>
+                <div class="control-group">
+                    <div class="control-header">
+                        <span class="priority-label low"><span class="dot"></span> AI (LOW)</span>
+                        <span id="rate-ai-val">0.4 Hz</span>
+                    </div>
+                    <input type="range" id="rate-ai" min="0" max="5" step="0.2" value="0.4">
+                </div>
+            </section>
+
+            <!-- Manual Injection -->
+            <section class="control-section">
+                <h3><i data-lucide="zap"></i> Manual Operations</h3>
+                <div class="inject-grid">
+                    <button class="btn inject-btn high" id="inject-high" title="Push high-priority INPUT event">
+                        + HIGH (Input)
+                    </button>
+                    <button class="btn inject-btn med" id="inject-med" title="Push medium-priority PHYSICS event">
+                        + MED (Physics)
+                    </button>
+                    <button class="btn inject-btn low" id="inject-low" title="Push low-priority AI event">
+                        + LOW (AI)
+                    </button>
+                </div>
+                <div class="inject-actions">
+                    <button class="btn warning btn-block" id="btn-stress-backpressure" title="Fill queue to maximum capacity to trigger dropping and blocking">
+                        <i data-lucide="activity"></i> Flood Queue (Backpressure)
+                    </button>
+                </div>
+            </section>
+
+            <!-- Fault Injection -->
+            <section class="control-section">
+                <h3><i data-lucide="shield-alert"></i> Fault Injection</h3>
+                <div class="toggle-control">
+                    <label class="switch">
+                        <input type="checkbox" id="toggle-exception">
+                        <span class="slider round"></span>
+                    </label>
+                    <div class="toggle-details">
+                        <span class="toggle-label">Exception in Callback</span>
+                        <span class="help-text">Simulates a subscriber throwing an unhandled exception.</span>
+                    </div>
+                </div>
+                <div class="toggle-control">
+                    <label class="switch">
+                        <input type="checkbox" id="toggle-writer-lock">
+                        <span class="slider round"></span>
+                    </label>
+                    <div class="toggle-details">
+                        <span class="toggle-label">Exclusive Registry Write</span>
+                        <span class="help-text">Acquires write lock in HandlerRegistry, blocking dispatch reads.</span>
+                    </div>
+                </div>
+            </section>
+        </aside>
+
+        <!-- Main Workspace Area -->
+        <main class="main-content">
+            <!-- Header Grid for Telemetry -->
+            <header class="dashboard-header glass">
+                <div class="metric-card">
+                    <div class="metric-icon primary"><i data-lucide="activity"></i></div>
+                    <div class="metric-data">
+                        <span class="metric-label">Total Processed</span>
+                        <span class="metric-value" id="stat-processed">0</span>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon success"><i data-lucide="clock"></i></div>
+                    <div class="metric-data">
+                        <span class="metric-label">Avg. Latency</span>
+                        <span class="metric-value" id="stat-latency">0.00 ms</span>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon warning"><i data-lucide="alert-triangle"></i></div>
+                    <div class="metric-data">
+                        <span class="metric-label">Deadline Misses</span>
+                        <span class="metric-value text-red" id="stat-missed">0</span>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon danger"><i data-lucide="package"></i></div>
+                    <div class="metric-data">
+                        <span class="metric-label">Dropped (Backpressure)</span>
+                        <span class="metric-value text-orange" id="stat-dropped">0</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Middle Section: Visualizer Boards -->
+            <div class="visualizer-grid">
+                <!-- Left half: Queue Tracks and Worker Pool -->
+                <div class="board-column">
+                    <!-- Queue Track Board (EventBus) -->
+                    <section class="visualizer-card glass active-element" id-target="bus-section" title="EventBus Queue Lanes (Click to inspect code)">
+                        <div class="card-header">
+                            <div class="header-title">
+                                <i data-lucide="list-ordered" class="icon-violet"></i>
+                                <h3>EventBus Priority Lanes</h3>
+                            </div>
+                            <div class="capacity-gauge">
+                                <span class="capacity-label">Bus Load:</span>
+                                <span id="bus-load-val">0 / 15</span>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar" id="bus-capacity-bar" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="queues-container">
+                            <!-- High Queue -->
+                            <div class="queue-lane" id="lane-high">
+                                <div class="lane-info">
+                                    <span class="badge badge-high">HIGH</span>
+                                    <span class="lane-title">Input & Render</span>
+                                    <span class="lane-count" id="count-high">0 events</span>
+                                </div>
+                                <div class="lane-track" id="track-high">
+                                    <!-- Dynamic Events will reside here -->
+                                </div>
+                            </div>
+
+                            <!-- Medium Queue -->
+                            <div class="queue-lane" id="lane-med">
+                                <div class="lane-info">
+                                    <span class="badge badge-med">MED</span>
+                                    <span class="lane-title">Physics Impulses</span>
+                                    <span class="lane-count" id="count-med">0 events</span>
+                                </div>
+                                <div class="lane-track" id="track-med">
+                                    <!-- Dynamic Events -->
+                                </div>
+                            </div>
+
+                            <!-- Low Queue -->
+                            <div class="queue-lane" id="lane-low">
+                                <div class="lane-info">
+                                    <span class="badge badge-low">LOW</span>
+                                    <span class="lane-title">AI Pathfinding</span>
+                                    <span class="lane-count" id="count-low">0 events</span>
+                                </div>
+                                <div class="lane-track" id="track-low">
+                                    <!-- Dynamic Events -->
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ThreadPool Workers Board -->
+                    <section class="visualizer-card glass active-element" id-target="pool-section" title="ThreadPool workers consuming events (Click to inspect code)">
+                        <div class="card-header">
+                            <div class="header-title">
+                                <i data-lucide="users" class="icon-violet"></i>
+                                <h3>ThreadPool Workers</h3>
+                            </div>
+                            <div class="pool-meta">
+                                <span id="pool-active-count">0 / 4 active</span>
+                            </div>
+                        </div>
+                        <div class="workers-grid" id="workers-container">
+                            <!-- Dynamic Worker Cards -->
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Right half: Handler Registry and Code/Architecture Explorer -->
+                <div class="board-column">
+                    <!-- Handler Registry subscriptions -->
+                    <section class="visualizer-card glass active-element" id-target="registry-section" title="HandlerRegistry routing callbacks (Click to inspect code)">
+                        <div class="card-header">
+                            <div class="header-title">
+                                <i data-lucide="book-open" class="icon-violet"></i>
+                                <h3>HandlerRegistry Subscriptions</h3>
+                            </div>
+                            <div class="lock-status" id="lock-status-indicator">
+                                <i data-lucide="unlock" id="lock-icon" class="icon-green"></i>
+                                <span id="lock-text">Shared Read Lock (Active)</span>
+                            </div>
+                        </div>
+                        <div class="registry-list">
+                            <div class="registry-item" id="reg-item-input">
+                                <div class="reg-meta">
+                                    <span class="badge badge-high">INPUT</span>
+                                    <span class="reg-callback-name">InputCallbackHandler</span>
+                                </div>
+                                <div class="reg-trigger-light" id="light-input"></div>
+                            </div>
+                            <div class="registry-item" id="reg-item-physics">
+                                <div class="reg-meta">
+                                    <span class="badge badge-med">PHYSICS</span>
+                                    <span class="reg-callback-name">PhysicsImpulseHandler</span>
+                                </div>
+                                <div class="reg-trigger-light" id="light-physics"></div>
+                            </div>
+                            <div class="registry-item" id="reg-item-ai">
+                                <div class="reg-meta">
+                                    <span class="badge badge-low">AI</span>
+                                    <span class="reg-callback-name">AIStateTickHandler</span>
+                                </div>
+                                <div class="reg-trigger-light" id="light-ai"></div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Code / Architecture Explorer -->
+                    <section class="visualizer-card glass explorer-card" id="code-explorer-card">
+                        <div class="card-header border-bottom">
+                            <div class="header-title">
+                                <i data-lucide="code" class="icon-violet"></i>
+                                <h3>Architecture Code Explorer</h3>
+                            </div>
+                        </div>
+                        <div class="explorer-tabs">
+                            <button class="tab-btn active" data-tab="tab-aging">Aging Logic</button>
+                            <button class="tab-btn" data-tab="tab-backpressure">Backpressure</button>
+                            <button class="tab-btn" data-tab="tab-locks">Reader-Writer Locks</button>
+                            <button class="tab-btn" data-tab="tab-exception">Exception Safety</button>
+                            <button class="tab-btn" data-tab="tab-timer">Drift-Free Timers</button>
+                        </div>
+                        <div class="explorer-content">
+                            <!-- Aging Logic Tab -->
+                            <div class="tab-pane active" id="tab-aging">
+                                <div class="explanation">
+                                    <h4>Dynamic Aging Algorithm</h4>
+                                    <p>Prevents low-priority events from starving under heavy workloads. Once an event's queue duration exceeds <strong>50ms</strong> (simulated as 5000ms), it's promoted to the next priority level.</p>
+                                    <p class="highlight"><strong>O(1) Efficiency:</strong> Because lanes are FIFO, the oldest element is always at the front. We only check the front elements, avoiding binary heap rebuild costs.</p>
+                                </div>
+                                <div class="code-block">
+                                    <pre><code class="language-cpp">// event_bus.cpp
+void EventBus::apply_aging_under_lock(uint64_t now_ns) {
+    while (!med_queue_.empty()) {
+        if (now_ns - med_queue_.front().last_promoted_ns > AGING_THRESHOLD_NS) {
+            Event ev = med_queue_.front(); med_queue_.pop();
+            ev.priority = Priority::HIGH;
+            ev.last_promoted_ns = now_ns;
+            high_queue_.push(ev);
+        } else break;
+    }
+    while (!low_queue_.empty()) {
+        if (now_ns - low_queue_.front().last_promoted_ns > AGING_THRESHOLD_NS) {
+            Event ev = low_queue_.front(); low_queue_.pop();
+            ev.priority = Priority::MEDIUM;
+            ev.last_promoted_ns = now_ns;
+            med_queue_.push(ev);
+        } else break;
+    }
+}</code></pre>
+                                </div>
+                            </div>
+
+                            <!-- Backpressure Tab -->
+                            <div class="tab-pane" id="tab-backpressure">
+                                <div class="explanation">
+                                    <h4>Bounded Capacity & Backpressure</h4>
+                                    <p>Restricts queue capacity (max 15 items in visualizer, 50 in C++) to prevent memory explosion. If full:</p>
+                                    <ol>
+                                        <li>If a `LOW` priority AI event exists, it is popped and <strong>dropped</strong> to immediately accommodate incoming telemetry (Lossy policy).</li>
+                                        <li>Otherwise, the pushing thread blocks via `not_full_cv_.wait()` until a worker consumes an event and frees space (Backpressure).</li>
+                                    </ol>
+                                </div>
+                                <div class="code-block">
+                                    <pre><code class="language-cpp">// event_bus.cpp
+void EventBus::push(Event event) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    while (high_queue_.size() + med_queue_.size() + low_queue_.size() >= max_capacity_) {
+        if (shutdown_) return;
+        if (!low_queue_.empty()) {
+            low_queue_.pop(); // Drop oldest LOW event
+            break;
+        } else {
+            not_full_cv_.wait(lock, [this]() {
+                return shutdown_ || (size() < max_capacity_);
+            });
+            if (shutdown_) return;
+        }
+    }
+    // ... enqueue by priority and notify workers
+}</code></pre>
+                                </div>
+                            </div>
+
+                            <!-- Reader-Writer Locks Tab -->
+                            <div class="tab-pane" id="tab-locks">
+                                <div class="explanation">
+                                    <h4>Deadlock-Free Dispatching</h4>
+                                    <p>Subscribing happens during boot (rare writes), but lookups occur on every single event dispatch (constant concurrent reads).</p>
+                                    <p>We use a <strong>`std::shared_mutex`</strong> to allow threads to read callbacks concurrently. Critically, we copy the callback handles and release the read lock <em>before</em> executing them, avoiding deadlocks if a callback registers new handlers recursively.</p>
+                                </div>
+                                <div class="code-block">
+                                    <pre><code class="language-cpp">// handler_registry.cpp
+void HandlerRegistry::dispatch(const Event& event) const {
+    std::vector<EventHandler> handlers_to_call;
+    {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        auto it = registry_.find(event.type);
+        if (it != registry_.end()) {
+            handlers_to_call = it->second; // deep copy
+        }
+    } // Shared Lock released here!
+
+    for (const auto& handler : handlers_to_call) {
+        handler(event); // Executed outside lock
+    }
+}</code></pre>
+                                </div>
+                            </div>
+
+                            <!-- Exception Safety Tab -->
+                            <div class="tab-pane" id="tab-exception">
+                                <div class="explanation">
+                                    <h4>Callback Exception Isolation</h4>
+                                    <p>An unhandled exception in a background thread propagates to the root and triggers `std::terminate()`, crashing the entire application.</p>
+                                    <p>Our `ThreadPool` worker loops encapsulate subscriber execution inside isolated try-catch blocks. If a callback fails, the thread logs the error and continues looping safely instead of crashing.</p>
+                                </div>
+                                <div class="code-block">
+                                    <pre><code class="language-cpp">// thread_pool.cpp
+void ThreadPool::worker_loop() {
+    while (running_ || !event_bus_.empty()) {
+        try {
+            Event event = event_bus_.pop();
+            try {
+                handler_registry_.dispatch(event);
+            } catch (const std::exception& ex) {
+                std::cerr << "[Exception] Callback failed: " << ex.what();
+            } catch (...) {
+                std::cerr << "[Exception] Unknown callback failure";
+            }
+        } catch (const std::exception&) {
+            break; // Thrown by pop() on shutdown and dry queue
+        }
+    }
+}</code></pre>
+                                </div>
+                            </div>
+
+                            <!-- Drift-Free Timers Tab -->
+                            <div class="tab-pane" id="tab-timer">
+                                <div class="explanation">
+                                    <h4>Drift-Free Scheduling Loop</h4>
+                                    <p>Using relative sleeping (e.g. `sleep_for(16.6ms)`) introduces <strong>accumulative drift</strong>, because processing time inside the loop pushes scheduling targets backward.</p>
+                                    <p>We use absolute scheduling deadlines and sleep until them (`sleep_until`). This absorbs execution delay and maintains precise frequency grids.</p>
+                                </div>
+                                <div class="code-block">
+                                    <pre><code class="language-cpp">// main.cpp (TickSource)
+void TickSource::run() {
+    auto start_time = steady_clock::now();
+    auto next_input = start_time;
+    const nanoseconds input_interval(1'000'000'000 / 60);
+
+    while (running_) {
+        auto now = steady_clock::now();
+        if (now >= next_input) {
+            push_event(EventType::INPUT, Priority::HIGH, ++event_id);
+            next_input += input_interval; // Rigid addition
+        }
+        std::this_thread::sleep_until(next_wakeup);
+    }
+}</code></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            <!-- Bottom Panel: Telemetry Graphs & CSV Logging Sim -->
+            <footer class="telemetry-section glass">
+                <div class="telemetry-chart-container">
+                    <div class="chart-header">
+                        <div class="header-title">
+                            <i data-lucide="line-chart" class="icon-violet"></i>
+                            <h3>Live Telemetry (Simulated StatsSampler)</h3>
+                        </div>
+                        <span class="chart-help-text">Sampling interval: 500ms. Writes historical logs to csv simulator memory.</span>
+                    </div>
+                    <div class="chart-canvas-wrapper">
+                        <canvas id="telemetryChart"></canvas>
+                    </div>
+                </div>
+                <div class="log-panel">
+                    <div class="log-header">
+                        <div class="header-title">
+                            <i data-lucide="terminal" class="icon-violet"></i>
+                            <h3>Visualizer System Logs</h3>
+                        </div>
+                        <button class="btn btn-sm btn-outline" id="btn-clear-logs">Clear</button>
+                    </div>
+                    <div class="log-rows" id="system-logs-container">
+                        <!-- Dynamic Logs -->
+                    </div>
+                </div>
+            </footer>
+        </main>
+    </div>
+    <!-- Script -->
+    <script src="app.js"></script>
+</body>
+</html>
